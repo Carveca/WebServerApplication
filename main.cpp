@@ -60,21 +60,21 @@ int main(int arc, char* argv[])
 
 	//Accept incomming connection
 	size = sizeof(struct sockaddr_in);
-	new_socket = accept(listener, (struct sockaddr*)&client, &size);
+	while ((new_socket = accept(listener, (struct sockaddr*)&client, &size)) != INVALID_SOCKET)
+	{
+		std::cout << "New connection accepted!" << std::endl;
+
+		//Reply
+		message = "Hello client! Your connection has been recieved. It is now aborted, goodbye! \n";
+		send(new_socket, message, strlen(message), 0);
+	}
+
+
 	if (new_socket == INVALID_SOCKET)
 	{
 		std::cout << "Failed to accept new connection! Error: " << WSAGetLastError() << std::endl;
+		return 1;
 	}
-	std::cout << "New connection accepted!" << std::endl;
-
-
-	//Reply
-	message = "Hello client! Your connection has been recieved. It is now aborted, goodbye! \n";
-	send(new_socket, message, strlen(message), 0);
-
-
-	getchar();
-
 
 	closesocket(listener);
 	WSACleanup();
