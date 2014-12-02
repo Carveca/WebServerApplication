@@ -1,0 +1,445 @@
+//WebServer.cpp
+
+#include "stdafx.h"
+
+#include "WebServer.h"
+
+#include <fstream>
+#include <mmsystem.h>
+#pragma comment(lib, "winmm.lib")
+
+#define MAX_IMAGESIZE 10485760 // 10 megabyte
+#define MAX_SEND 4096 + MAX_IMAGESIZE
+
+WebServer::WebServer()
+{
+	m_bKeepAliveDefault = true;
+}
+
+bool WebServer::Initialize()
+{
+	if (WSAStartup(MAKEWORD(2, 1), &m_wsadata) != 0)
+	{
+		std::cout << "WSAStartup error: " << WSAGetLastError() << std::endl;
+		return false;
+	}
+
+	m_client_server.m_addr.sin_family = AF_INET;
+	m_client_server.m_addr.sin_addr.S_un.S_addr = INADDR_ANY;
+	m_client_server.m_addr.sin_port = htons(8080);
+	memset(m_client_server.m_addr.sin_zero, 0, sizeof(m_client_server.m_addr.sin_zero));
+
+	m_client_server.m_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+
+	if (bind(m_client_server.m_socket, (const struct sockaddr*)&m_client_server.m_addr, sizeof(struct sockaddr_in)) != 0)
+	{
+		std::cout << "bind() socket failed, error: " << WSAGetLastError() << std::endl;
+		return false;
+	}
+	if (listen(m_client_server.m_socket, SOMAXCONN) != 0)
+	{
+		std::cout << "listen() failed, error: " << WSAGetLastError() << std::endl;
+		return false;
+	}
+
+	return true;
+}
+
+void WebServer::Shutdown()
+{
+	WSACleanup();
+}
+
+void WebServer::RunLoop()
+{
+	fd_set fd;
+	struct timeval tv;
+	tv.tv_sec = 0;
+	tv.tv_usec = 10;
+
+	while (true)
+	{
+		fd.fd_count = 1;
+		fd.fd_array[0] = m_client_server.m_socket;
+
+		int ret = select(1, &fd, 0, 0, &tv);
+		if (ret > 0)
+		{
+			SOCKET ns;
+			struct sockaddr_in remote;
+
+			AcceptConnection(ns, remote);
+		}
+		else if (ret == SOCKET_ERROR)
+			std::cout << "select() socket error: " << WSAGetLastError() << std::endl;
+
+		RemoteClientsRecv();
+		RemoteClientsAliveCheck();
+	}
+}
+
+void WebServer::SetKeepAliveDefault(const bool &p_bKeepAlive)
+{
+	m_bKeepAliveDefault = p_bKeepAlive;
+}
+
+void WebServer::PrintAdress(sockaddr_in p_addr)
+{
+	std::cout << (int)p_addr.sin_addr.S_un.S_un_b.s_b1 << '.'
+		<< (int)p_addr.sin_addr.S_un.S_un_b.s_b2 << '.'
+		<< (int)p_addr.sin_addr.S_un.S_un_b.s_b3 << '.'
+		<< (int)p_addr.sin_addr.S_un.S_un_b.s_b4;
+}
+
+void WebServer::AcceptConnection(SOCKET &p_socket, sockaddr_in &p_remote)
+{
+	int size = sizeof(struct sockaddr_in);
+	p_socket = accept(m_client_server.m_socket, (sockaddr*)&p_remote, &size);
+	if (p_socket < 0)
+	{
+		std::cout << "accept() socket error: " << WSAGetLastError() << std::endl;
+	}
+	else
+	{
+		std::cout << "Got data (";
+		PrintAdress(p_remote);
+		std::cout << ')';
+		if (!RemoteSocketInList(p_socket))
+		{
+			std::cout << " Adding client.";
+			RemoteClientAdd(Client(p_socket, p_remote, timeGetTime(), m_bKeepAliveDefault));
+			std::cout << " Client count: " << m_clients_remote.size();
+		}
+		std::cout << std::endl;
+	}
+}
+
+void WebServer::RemoteClientsRecv()
+{
+	auto itr = m_clients_remote.begin();
+	while (itr != m_clients_remote.end())
+	{
+		if (ClientHasData((*itr)))
+		{
+			HandleRequest((*itr));
+			(*itr).m_timestamp = timeGetTime();
+		}
+		++itr;
+	}
+}
+
+bool WebServer::ClientHasData(const Client &p_client)
+{
+	u_long len = 0;
+	int testy = ioctlsocket(p_client.m_socket, FIONREAD, &len);
+	return len > 0;
+}
+
+void WebServer::HandleRequest(Client &p_client)
+{
+	static char buffer[4096] = { 0 };
+
+	int bytes = recv(p_client.m_socket, buffer, sizeof(buffer) - 1, 0);
+	if (bytes < 0)
+	{
+		std::cout << "recv() socket error: " << WSAGetLastError() << std::endl;
+	}
+	else if (bytes == 0)
+	{
+		//half-closed connection
+	}
+	else
+	{
+		buffer[bytes] = '\0';
+		std::string sBufferAsString = buffer;
+
+		//checking keep-alive
+		if (sBufferAsString.find("Connection: keep-alive") != std::string::npos)
+			p_client.bKeepAlive = true;
+		else if (sBufferAsString.find("Connection: close") != std::string::npos)
+			p_client.bKeepAlive = false;
+
+		//if recieving a GET request
+		if (sBufferAsString.find("GET") != std::string::npos)
+		{
+			int iGetStart = sBufferAsString.find("GET ") + sizeof("GET ") - 1;
+			int iGetEnd = sBufferAsString.find(" HTTP/");
+			std::string sGet = sBufferAsString.substr(iGetStart, iGetEnd - iGetStart);
+
+			//defaulting to /index.html
+			if (sGet == "/" || sGet == "/index")
+				sGet = "/index.html";
+
+			std::cout << "GET-request recieved for: " << sGet;
+
+			//Request safe-check
+			if (GETRequestIsSafe(sGet))
+			{
+				//checking accepted types
+				if (sBufferAsString.find("Accept: ") != std::string::npos)
+				{
+					int iAcceptStart = sBufferAsString.find("Accept:") + sizeof("Accept:") - 1;
+					int iAcceptEnd = iAcceptStart + sBufferAsString.substr(iAcceptStart).find("\n");
+					std::string sAccept = sBufferAsString.substr(iAcceptStart, iAcceptEnd - iAcceptStart);
+
+					//html, image or * (any) requests
+					if (sAccept.find("html") != std::string::npos || sAccept.find("*") != std::string::npos || sAccept.find("image") != std::string::npos)
+					{
+						std::cout << ". Accept passed." << std::endl;
+						//html
+						if (sGet.find(".html") != std::string::npos)
+						{
+							HTMLPageSend(p_client.m_socket, sGet);
+						}
+						//images (ico or jpg)
+						else if (sGet.find(".ico") != std::string::npos || sGet.find(".jpeg") != std::string::npos || sGet.find(".jpg") != std::string::npos)
+						{
+							ContentType eImageType = sGet.find(".ico") != std::string::npos ? ContentType::HTTPCONTENTTYPE_IMAGEICO : ContentType::HTTPCONTENTTYPE_IMAGEJPG;
+							ImageSend(p_client.m_socket, sGet, eImageType);
+						}
+						//other (=html)
+						else
+						{
+							HTMLPageSend(p_client.m_socket, sGet);
+						}
+					}
+				}
+				else
+				{
+					std::cout << ". No accept supplied, defaulting to HTML-request." << std::endl;
+					HTMLPageSend(p_client.m_socket, sGet);
+				}
+			}
+			else
+			{
+				std::cout << ". Unsafe request detected." << std::endl;
+				SendMsg(p_client.m_socket, "", 0, Header(HTTPcode::HTTPCODE_REFUSE, ContentType::HTTPCONTENTTYPE_NONE));
+			}
+		}
+		else
+		{
+			//not a GET
+			std::cout << std::endl;
+			SendMsg(p_client.m_socket, "", 0, Header(HTTPcode::HTTPCODE_REFUSE, ContentType::HTTPCONTENTTYPE_NONE));
+		}
+	}
+}
+
+bool WebServer::GETRequestIsSafe(const std::string &p_addr_req)
+{
+	std::list < std::string > xList;
+	xList.push_front("..");
+
+	auto itr = xList.begin();
+	while (itr != xList.end())
+	{
+		if (p_addr_req.find((*itr)) != std::string::npos)
+			return false;
+		++itr;
+	}
+
+	return true;
+}
+
+bool WebServer::HTMLPageLoad(const std::string &p_addr_req)
+{
+	std::string sFilePath = "../Webpage";
+	sFilePath += p_addr_req;
+
+	auto itr = m_html_pages.begin();
+	while (itr != m_html_pages.end())
+	{
+		if ((*itr).adress == p_addr_req)
+			return true;
+		++itr;
+	}
+
+	std::ifstream xStream;
+	xStream.open(sFilePath);
+	if (xStream.is_open())
+	{
+		std::string sInsert = "";
+		while (!xStream.eof())
+		{
+			std::string sTemp;
+			getline(xStream, sTemp);
+			sTemp += "\r\n";
+			sInsert += sTemp;
+		}
+		m_html_pages.push_front(HTMLPage(p_addr_req, sInsert));
+		xStream.close();
+		return true;
+	}
+
+	std::cout << "HTMLPageLoad() did not find page." << std::endl;
+	return false;
+}
+
+bool WebServer::HTMLPageSend(const SOCKET &p_socket, const std::string &p_addr_req, const bool &p_send_404)
+{
+	//404-page
+	char msg[] = "<HTML>\r\n<head>\r\n<title>LordNet: Error 404</title>\r\n</head>\r\n<body bgcolor=black>\r\n<font color=white>ERROR 404<br>Requested page does not exist.<br><br><img src=\"404.jpg\" alt=\"404 not found\">\r\n</font>\r\n</body>\r\n</html>";
+
+	if (p_send_404 || !HTMLPageLoad(p_addr_req))
+	{
+		SendMsg(p_socket, msg, sizeof(msg) - 1, Header(HTTPcode::HTTPCODE_NOTFOUND, ContentType::HTTPCONTENTTYPE_HTML));
+		return true;
+	}
+
+	auto itr = m_html_pages.begin();
+	while (itr != m_html_pages.end())
+	{
+		if ((*itr).adress == p_addr_req)
+		{
+			SendMsg(p_socket, (char*)(*itr).content.c_str(), (*itr).content.size(), Header(HTTPcode::HTTPCODE_OK, ContentType::HTTPCONTENTTYPE_HTML));
+			return true;
+		}
+		++itr;
+	}
+	return false;
+}
+
+bool WebServer::ImageSend(const SOCKET &p_socket, const std::string &p_addr_req, const ContentType &p_imagetype)
+{
+	if (p_imagetype == ContentType::HTTPCONTENTTYPE_IMAGEICO || p_imagetype == ContentType::HTTPCONTENTTYPE_IMAGEJPG)
+	{
+		std::string sFilePath = "../Webpage";
+		sFilePath += p_addr_req;
+
+		std::ifstream xStream;
+		xStream.open(sFilePath, std::ifstream::binary);
+		if (xStream.is_open())
+		{
+			char* cBufferPointer = new char[MAX_IMAGESIZE];
+			*cBufferPointer = { 0 };
+
+			xStream.read(cBufferPointer, sizeof(char) * MAX_IMAGESIZE);
+			int iImageSize = (int)xStream.gcount();
+
+			SendMsg(p_socket, cBufferPointer, iImageSize < MAX_IMAGESIZE ? iImageSize : MAX_IMAGESIZE, Header(HTTPcode::HTTPCODE_OK, p_imagetype));
+
+			xStream.close();
+
+			delete cBufferPointer;
+			cBufferPointer = nullptr;
+			return true;
+		}
+	}
+
+	SendMsg(p_socket, "", 0, Header(HTTPcode::HTTPCODE_NOTFOUND, p_imagetype));
+	std::cout << "ImageSend() could not load image." << std::endl;
+
+	return false;
+}
+
+void WebServer::SendMsg(const SOCKET &p_socket, char* p_msg, const int &p_iMsgLength, const Header &p_xHeader)
+{
+	char* cBufferPointer = new char[MAX_SEND];
+	*cBufferPointer = { 0 };
+	std::string sHeader = asString_Header(p_iMsgLength, p_xHeader);
+	int iHeaderSize = (int)sHeader.size();
+
+	//header to sendbuffer
+	for (int i = 0; i < iHeaderSize; ++i)
+		cBufferPointer[i] = sHeader[i];
+
+	//message to sendbuffer
+	for (int i = iHeaderSize; i < iHeaderSize + p_iMsgLength && i < MAX_SEND; ++i)
+		cBufferPointer[i] = p_msg[i - iHeaderSize];
+
+	send(p_socket, cBufferPointer, iHeaderSize + p_iMsgLength, 0);
+
+	delete cBufferPointer;
+	cBufferPointer = nullptr;
+}
+
+std::string WebServer::asString_HeaderCode(const HTTPcode &e_code)
+{
+	switch (e_code)
+	{
+	case HTTPcode::HTTPCODE_OK:
+		return "200 OK";
+	case HTTPCODE_NOTFOUND:
+		return "404 Not Found";
+	case HTTPcode::HTTPCODE_REFUSE:
+	default:
+		return "403 Forbidden";
+	}
+}
+
+std::string WebServer::asString_HeaderContentType(const ContentType &e_contenttype)
+{
+	switch (e_contenttype)
+	{
+	case ContentType::HTTPCONTENTTYPE_HTML:
+		return "text/html; charset=utf-8";
+	case ContentType::HTTPCONTENTTYPE_IMAGEICO:
+		return "image/ico";
+	case ContentType::HTTPCONTENTTYPE_IMAGEJPG:
+		return "image/jpg";
+	default:
+		return "";
+	}
+}
+
+std::string WebServer::asString_Header(const int &p_iContLength, const Header &p_xHeader)
+{
+	std::stringstream ret;
+
+	ret << "HTTP/1.1 " << asString_HeaderCode(p_xHeader.m_httpcode);
+	ret << "\r\nServer: LordServer v0.1\r\n";
+	ret << "Content-Length: " << p_iContLength << "\r\n";
+	ret << "Content-Type: " << ((p_xHeader.m_contenttype != ContentType::HTTPCONTENTTYPE_NONE) ? asString_HeaderContentType(p_xHeader.m_contenttype) : "*") << "\r\n";
+	ret << "Allow: GET\r\nConnection: keep-alive\r\n\r\n";
+
+	return ret.str();
+}
+
+bool WebServer::RemoteSocketInList(const SOCKET &p_socket)
+{
+	auto itr = m_clients_remote.begin();
+	while (itr != m_clients_remote.end())
+	{
+		if ((*itr).m_socket == p_socket)
+			return true;
+		++itr;
+	}
+	return false;
+}
+
+void WebServer::RemoteClientAdd(Client p_client)
+{
+	m_clients_remote.push_front(p_client);
+}
+
+void WebServer::RemoteClientUpdateTimeout(const SOCKET &p_socket)
+{
+	auto itr = m_clients_remote.begin();
+	while (itr != m_clients_remote.end())
+	{
+		if ((*itr).m_socket == p_socket)
+			(*itr).m_timestamp = timeGetTime();
+		++itr;
+	}
+}
+
+void WebServer::RemoteClientsAliveCheck()
+{
+	unsigned int now = timeGetTime();
+	auto itr = m_clients_remote.begin();
+	while (itr != m_clients_remote.end())
+	{
+		if (!(*itr).bKeepAlive || now - (*itr).m_timestamp > 300000)
+		{
+			std::cout << "Client (";
+			PrintAdress((*itr).m_addr);
+
+			closesocket((*itr).m_socket);
+
+			itr = m_clients_remote.erase(itr);
+			std::cout << ") disconnected. Client count: " << m_clients_remote.size() << std::endl;
+			continue;
+		}
+		++itr;
+	}
+}
