@@ -6,6 +6,8 @@
 #include <string>
 #include <fstream>
 #include <iostream>
+#include <memory>
+
 
 #include <Windows.h>
 #pragma comment(lib, "ws2_32.lib")
@@ -14,6 +16,7 @@
 #pragma comment(lib, "winmm.lib")
 
 // ***___ Constructor & Destructor ___***
+
 HTTPOperations::HTTPOperations()
 {}
 HTTPOperations::~HTTPOperations()
@@ -23,6 +26,7 @@ HTTPOperations::~HTTPOperations()
 
 
 // ***___ void methods ___***
+
 void HTTPOperations::Run()
 {
 	fd_set socketsList_fd;
@@ -31,8 +35,12 @@ void HTTPOperations::Run()
 	timeInterval.tv_sec = 0;
 	timeInterval.tv_usec = 10;
 
-	while (true)
+	unsigned int time = 0;
+
+	while (time < 1000)
 	{
+		time++;
+
 		socketsList_fd.fd_count = 1;
 		socketsList_fd.fd_array[0] = m_listenerSocket;
 
@@ -84,7 +92,6 @@ void HTTPOperations::AddClient(const SOCKET &sock, const struct sockaddr_in &add
 	m_clients.push_back(CLIENT(sock, addr, timestamp, true));
 	std::cout << "done. Client count: " << m_clients.size() << std::endl;;
 }
-
 void HTTPOperations::HandleClients()
 {
 	for (unsigned int i = 0; i < m_clients.size(); i++)
@@ -172,7 +179,6 @@ void HTTPOperations::Timeout()
 		}
 	}
 }
-
 // Check all clients to see if their Keep-Alive is false. If it is, close the socket and remove the client.
 // Should be called just after Timeout().
 void HTTPOperations::Remove()
@@ -186,6 +192,7 @@ void HTTPOperations::Remove()
 			//close socket
 			closesocket((*iterator).m_socket);
 			//remove client
+			iterator->~CLIENT();
 			iterator = m_clients.erase(iterator);
 
 			std::cout << "Client disconnected. Client count: " << m_clients.size() << std::endl;
@@ -197,6 +204,7 @@ void HTTPOperations::Remove()
 	}
 }
 
+// Send index to client
 void HTTPOperations::HTMLSendPage(const SOCKET &sock)
 {
 	std::string input = "";
@@ -219,36 +227,29 @@ void HTTPOperations::HTMLSendPage(const SOCKET &sock)
 	openfile.close();
 
 	//header
-
-
-
 	std::string header = "HTTP/1.1 200 OK\nContent-Lenght: 5000\n\n";
 	//message
-	char* message = new char[input.length() + header.length()];
 	std::string headerAndMessage = header + input;
-	message = const_cast<char*>(headerAndMessage.c_str());
+	char* message = const_cast<char*>(headerAndMessage.c_str());
 	//send
 	send(sock, message, strlen(message), 0);
-
-	//delete message;
-	//message = nullptr;
 }
+// Send 403 to client
 void HTTPOperations::HTMLRefuse(SOCKET &sock)
 {
 	std::string header = "HTTP/1.1 403 Forbidden\nContent-Lenght: 0\n\n";
 
-	char* message = new char[header.length()];
+	//std::vector<char> message(header.begin(), header.end());
+	//message.push_back('\0');
+	//send(sock, &message[0], strlen(&message[0]), 0);
 
-	message = const_cast<char*>(header.c_str());
-
-	send(sock, message, strlen(message), 0);
-
-	//delete message;
-	//message = nullptr;
+	const char* message = const_cast<char*>(header.c_str());
+	send(sock, message, strlen(message), 0);	
 }
 
 
 // ***___ boolean methods ___***
+
 bool HTTPOperations::Startup()
 {
 	if (Initialize())
@@ -267,8 +268,6 @@ bool HTTPOperations::Startup()
 
 	return false;
 }
-
-	//Startup's booleans
 bool HTTPOperations::Initialize()
 {
 	m_serverSockaddr.sin_family = AF_INET;
@@ -329,7 +328,6 @@ bool HTTPOperations::ClientHasData(CLIENT &client)
 	ioctlsocket(client.m_socket, FIONREAD, &lenght);
 	return lenght > 0;
 }
-
 //returns true if request is valid (does not contain "/..")
 bool HTTPOperations::RequestValidation(std::string &buffer_as_string)
 {
@@ -340,8 +338,7 @@ bool HTTPOperations::RequestValidation(std::string &buffer_as_string)
 
 	return true;
 }
-
-//returns true if buffer contains GET request
+//returns true if buffer contains a GET request
 bool HTTPOperations::FindGETRequest(std::string &buffer_as_string)
 {
 	if (buffer_as_string.find("GET") != std::string::npos)

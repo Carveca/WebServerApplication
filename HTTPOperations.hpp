@@ -8,7 +8,6 @@
 
 class HTTPOperations
 {
-public:
 	struct CLIENT
 	{
 		CLIENT(const SOCKET &sock, const sockaddr_in &addr, unsigned int &timestamp, const bool &keepalive)
@@ -18,6 +17,7 @@ public:
 			m_timeStamp = timestamp;
 			m_keepAlive = keepalive;
 		}
+		~CLIENT(){};
 
 		SOCKET m_socket;
 		struct sockaddr_in m_addr;
@@ -33,8 +33,7 @@ public:
 	void Run();
 	
 	void AcceptNewConnection();
-	void AddClient(const SOCKET &sock, const struct sockaddr_in &addr);
-	
+	void AddClient(const SOCKET &sock, const struct sockaddr_in &addr);	
 	void HandleClients();
 	void HandleClientRequest(CLIENT &client);
 	void HeaderKeepAliveCheck(std::string &buffer_as_string, CLIENT &client);
@@ -45,8 +44,8 @@ public:
 	void HTMLSendPage(const SOCKET &sock);
 	void HTMLRefuse(SOCKET &sock);
 
-	bool Startup();
 
+	bool Startup();
 	bool Initialize();
 	bool CreateListenerSocket();
 	bool BindListenerSocket();

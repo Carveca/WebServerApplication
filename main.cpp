@@ -11,16 +11,19 @@
 	Internet explorer is fucking stupid! I cannot even enter the ip address and port number directly, it searches the address and port on Bing instead... -_-
 	-----
 
-*	The headersent with the HTML page should not have a hard coded lenght in its description
+*	The header sent with the HTML page should not have a hard coded lenght in its description
 	-----
 
-*	WSACleanup is in destructor, put it in a separate method? (any reason to?)
+*	WSACleanup is in the destructor, should I put it in a separate method instead? (any reason to do so?)
 	-----
 
-*	Do I need to delete the char* in HTMLsendpage and HTMLrefuse? Program acts wierd when I do so...
+*	HTML snedpage and refuse memory leak (solved?)
 	-----
 
 *	Check if socket/client is already in list?
+	-----
+
+*	The while-loop that checks connections etc needs to be dependent on something insted of being a while(true)-loop.
 	-----
 
 */
