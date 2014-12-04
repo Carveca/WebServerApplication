@@ -4,6 +4,7 @@
 
 #include <time.h>
 #include <string>
+#include <sstream>
 #include <fstream>
 #include <iostream>
 #include <memory>
@@ -21,8 +22,7 @@ HTTPOperations::HTTPOperations()
 {}
 HTTPOperations::~HTTPOperations()
 {
-	closesocket(m_listenerSocket);
-	WSACleanup();
+	Shutdown();
 }
 
 
@@ -36,11 +36,14 @@ void HTTPOperations::Run()
 	timeInterval.tv_sec = 0;
 	timeInterval.tv_usec = 10;
 
-	unsigned int time = 0;
+	bool running = true;
 
-	while (time < 1000)
+	while (running)
 	{
-		time++;
+		if (GetAsyncKeyState('Q') != 0)
+		{
+			running = false;
+		}
 
 		socketsList_fd.fd_count = 1;
 		socketsList_fd.fd_array[0] = m_listenerSocket;
@@ -61,6 +64,11 @@ void HTTPOperations::Run()
 		Timeout();
 		Remove();
 	}
+}
+void HTTPOperations::Shutdown()
+{
+	closesocket(m_listenerSocket);
+	WSACleanup();
 }
 
 void HTTPOperations::AcceptNewConnection()
@@ -102,7 +110,7 @@ void HTTPOperations::HandleClients()
 			std::cout << "Client has data!" << std::endl;
 
 			m_clients[i].m_timeStamp = timeGetTime();
-			
+
 			HandleClientRequest(m_clients[i]);
 		}
 	}
@@ -110,16 +118,16 @@ void HTTPOperations::HandleClients()
 void HTTPOperations::HandleClientRequest(CLIENT &client)
 {
 	static char buffer[4096] = { 0 };
-	int bytes = recv(client.m_socket, buffer, sizeof(buffer)-1, 0);
+	int bytes = recv(client.m_socket, buffer, sizeof(buffer) - 1, 0);
 
 	if (bytes < 0)
 	{
 		std::cout << "Call on recv failed! Error: " << WSAGetLastError() << std::endl;
-	}		
+	}
 	else if (bytes == 0)
 	{
 		std::cout << "What?" << std::endl;
-	}		
+	}
 	else
 	{
 		std::cout << "Check request: ";
@@ -162,7 +170,7 @@ void HTTPOperations::HeaderKeepAliveCheck(std::string &buffer_as_string, CLIENT 
 	else if (buffer_as_string.find("Connection: keep-alive") != std::string::npos)
 	{
 		client.m_keepAlive = true;
-	}		
+	}
 }
 
 // Check all clients to see if any have timed out. If they have, Keep-Alive is changed to false.
@@ -228,13 +236,18 @@ void HTTPOperations::HTMLSendPage(const SOCKET &sock)
 	openfile.close();
 
 	//header
-	std::string header = "HTTP/1.1 200 OK\nContent-Lenght: 5000\n\n";
+	std::stringstream header;
+	header << "HTTP/1.1 200 OK\nContent-Lenght: " << input.size();
+	header << "\nContent-Type: text/html; charset=utf-8\n\n";
 	//message
-	std::string headerAndMessage = header + input;
-	char* message = const_cast<char*>(headerAndMessage.c_str());
+	std::string headerAndMessage = header.str();
+	headerAndMessage += input;
+	const char* message = const_cast<char*>(headerAndMessage.c_str());
+	
 	//send
-	send(sock, message, strlen(message), 0);
+	std::cout << "SendData: " << send(sock, message, strlen(message), 0) << std::endl;
 }
+	
 // Send 403 to client
 void HTTPOperations::HTMLRefuse(SOCKET &sock)
 {
@@ -245,7 +258,7 @@ void HTTPOperations::HTMLRefuse(SOCKET &sock)
 	//send(sock, &message[0], strlen(&message[0]), 0);
 
 	const char* message = const_cast<char*>(header.c_str());
-	send(sock, message, strlen(message), 0);	
+	send(sock, message, strlen(message), 0);
 }
 
 
@@ -272,7 +285,7 @@ bool HTTPOperations::Startup()
 bool HTTPOperations::Initialize()
 {
 	m_serverSockaddr.sin_family = AF_INET;
-	m_serverSockaddr.sin_addr.S_un.S_addr = INADDR_ANY; 
+	m_serverSockaddr.sin_addr.S_un.S_addr = INADDR_ANY;
 	m_serverSockaddr.sin_port = htons(8080);
 	memset(m_serverSockaddr.sin_zero, 0, sizeof(m_serverSockaddr.sin_zero));
 
@@ -296,7 +309,7 @@ bool HTTPOperations::CreateListenerSocket()
 	}
 
 	std::cout << "done!" << std::endl;
-	return true;	
+	return true;
 }
 bool HTTPOperations::BindListenerSocket()
 {
@@ -320,7 +333,7 @@ bool HTTPOperations::Listen()
 	return true;
 }
 
-	//Datachecks
+//Datachecks
 
 //returns true if client has data
 bool HTTPOperations::ClientHasData(CLIENT &client)
@@ -346,6 +359,6 @@ bool HTTPOperations::FindGETRequest(std::string &buffer_as_string)
 	{
 		return true;
 	}
-	
+
 	return false;
 }

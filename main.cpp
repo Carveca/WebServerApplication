@@ -4,33 +4,6 @@
 #include "HTTPOperations.hpp"
 
 
-/*
-	TO DO:
-
-*	Chrome can load the page without problems. Firefox cannot. 
-	Internet explorer is fucking stupid! I cannot even enter the ip address and port number directly, it searches the address and port on Bing instead... -_-
-	-----
-
-*	The header sent with the HTML page should not have a hard coded lenght in its description
-	-----
-
-*	WSACleanup is in the destructor, should I put it in a separate method instead? (any reason to do so?)
-	-----
-
-*	HTML snedpage and refuse memory leak (solved?)
-	-----
-
-*	Check if socket/client is already in list?
-	-----
-
-*	The while-loop that checks connections etc needs to be dependent on something insted of being a while(true)-loop.
-	-----
-
-*	Proper shutdown method that shuts down all sockets (listener and thos that are stored), clean all of the containers and calls WSACleanup
-	-----
-
-*/
-
 int main(int arc, char* argv[])
 {
 	HTTPOperations server;
@@ -39,7 +12,6 @@ int main(int arc, char* argv[])
 	{
 		server.Run();
 	}
-
-
+	
 	return 0;
 }

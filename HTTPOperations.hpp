@@ -31,6 +31,7 @@ public:
 	~HTTPOperations();
 
 	void Run();
+	void Shutdown();
 	
 	void AcceptNewConnection();
 	void AddClient(const SOCKET &sock, const struct sockaddr_in &addr);	
