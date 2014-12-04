@@ -21,6 +21,7 @@ HTTPOperations::HTTPOperations()
 {}
 HTTPOperations::~HTTPOperations()
 {
+	closesocket(m_listenerSocket);
 	WSACleanup();
 }
 

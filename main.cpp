@@ -26,6 +26,9 @@
 *	The while-loop that checks connections etc needs to be dependent on something insted of being a while(true)-loop.
 	-----
 
+*	Proper shutdown method that shuts down all sockets (listener and thos that are stored), clean all of the containers and calls WSACleanup
+	-----
+
 */
 
 int main(int arc, char* argv[])
