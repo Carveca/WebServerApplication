@@ -9,7 +9,6 @@
 #include <iostream>
 #include <memory>
 
-
 #include <Windows.h>
 #pragma comment(lib, "ws2_32.lib")
 
