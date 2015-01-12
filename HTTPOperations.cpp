@@ -88,7 +88,6 @@ void HTTPOperations::AcceptNewConnection()
 		std::cout << "accepted!" << std::endl;
 
 		//check if already in list?
-
 		AddClient(new_socket, remote_sockaddr);
 	}
 }
@@ -125,14 +124,14 @@ void HTTPOperations::HandleClientRequest(CLIENT &client)
 	}
 	else if (bytes == 0)
 	{
-		std::cout << "What?" << std::endl;
+		std::cout << "Half-closed connection!" << std::endl;
 	}
 	else
 	{
 		std::cout << "Check request: ";
 
 		buffer[bytes] = '\0';
-		std::string buffer_as_string = buffer;
+		std::string buffer_as_string = buffer;		
 
 		//check if header contains keep-alive
 		HeaderKeepAliveCheck(buffer_as_string, client);
@@ -215,10 +214,13 @@ void HTTPOperations::Remove()
 // Send index to client
 void HTTPOperations::HTMLSendPage(const SOCKET &sock)
 {
+	std::string filepath = "../WebPage";
+	filepath += string_get_page_request;
+
 	std::string input = "";
 
 	std::ifstream openfile;
-	openfile.open("../WebPage/index.html");
+	openfile.open(filepath);
 
 	if (openfile.is_open())
 	{
@@ -236,7 +238,7 @@ void HTTPOperations::HTMLSendPage(const SOCKET &sock)
 
 	//header
 	std::stringstream header;
-	header << "HTTP/1.1 200 OK\nContent-Lenght: " << input.size();
+	header << "HTTP/1.1 200 OK\nContent-Length: " << input.size();
 	header << "\nContent-Type: text/html; charset=utf-8\n\n";
 	//message
 	std::string headerAndMessage = header.str();
@@ -356,6 +358,16 @@ bool HTTPOperations::FindGETRequest(std::string &buffer_as_string)
 {
 	if (buffer_as_string.find("GET") != std::string::npos)
 	{
+		//check buffer
+		int get_start = buffer_as_string.find("GET ") + sizeof("GET ") - 1;
+		int get_end = buffer_as_string.find(" HTTP/");
+		string_get_page_request = buffer_as_string.substr(get_start, get_end - get_start);
+
+		if (string_get_page_request == "/")
+		{
+			string_get_page_request = "/index.html";
+		}
+
 		return true;
 	}
 

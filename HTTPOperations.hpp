@@ -62,4 +62,6 @@ private:
 	WSADATA m_wsaData;
 	SOCKET m_listenerSocket;
 	struct sockaddr_in m_serverSockaddr;
+
+	std::string string_get_page_request;
 };
